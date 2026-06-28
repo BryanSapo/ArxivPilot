@@ -1,15 +1,12 @@
 from langgraph.graph import StateGraph, MessagesState, START, END
-from langchain.tools import tool
+
 from langchain_openai import ChatOpenAI
-from langchain.messages import AnyMessage, SystemMessage, ToolMessage
-from typing_extensions import TypedDict, Annotated
-import operator
+from langchain.messages import SystemMessage, ToolMessage
 from typing import Literal
-import requests
 import os
 from dotenv import load_dotenv
-from datetime import date
-import re
+from tools import download_arxiv_pdf, list_all_papers
+
 load_dotenv()
 
 model = ChatOpenAI(
@@ -21,66 +18,13 @@ model = ChatOpenAI(
     max_retries=2,
 )
 
-@tool
-def download_arxiv_pdf(url: str) -> str:
-    """Download an arxiv paper's PDF and save it in ./tmp, named after the paper title.
-
-    Pass ONLY the arxiv abstract URL. The title and filename are determined
-    automatically inside this tool.
-
-    Args:
-        url (str): the url of an arxiv abstract webpage
-            (e.g. https://arxiv.org/abs/2606.27350).
-
-    Returns:
-        A status message with the saved file path.
-    """
-    # Resolve the paper title from the abstract page.
-    abs_response = requests.get(url)
-    match = re.search(r"<title>(.*?)</title>", abs_response.text, re.IGNORECASE | re.DOTALL)
-    if match:
-        title = match.group(1).strip()
-        # Strip the leading "[arxiv-id] " prefix arxiv adds to the title.
-        title = re.sub(r"^\[[^\]]*\]\s*", "", title)
-    else:
-        title = "Unknown_Name"
-
-    # Build the pdf url from the arxiv id.
-    arxiv_id = url.rstrip("/").split("/")[-1]
-    pdf_url = "https://arxiv.org/pdf/" + arxiv_id
-
-    # Make the title safe to use as a filename (remove / : * ? " < > | etc.).
-    safe_name = re.sub(r'[\\/:*?"<>|]', "_", title).strip()
-    safe_name = safe_name[:150] or arxiv_id  # avoid empty/overly long filenames
-
-    save_path = "./tmp/"
-    os.makedirs(save_path, exist_ok=True)
-    full_path = os.path.join(save_path, safe_name + ".pdf")
-
-    response = requests.get(pdf_url, stream=True)
-    if response.status_code == 200:
-        with open(full_path, "wb") as pdf_file:
-            for chunk in response.iter_content(chunk_size=2048):
-                if chunk:
-                    pdf_file.write(chunk)
-        msg = f"Success! PDF downloaded and saved to: {full_path}"
-        print(msg)
-        return msg
-    else:
-        msg = f"Failed to fetch PDF. Status code: {response.status_code}"
-        print(msg)
-        return msg
 
 
-tools = [download_arxiv_pdf]
+
+tools = [download_arxiv_pdf, list_all_papers]
 tools_by_name = {tool.name: tool for tool in tools}
 
 model_with_tools = model.bind_tools(tools)
-    
-
-class MessagesState(TypedDict):
-    messages: Annotated[list[AnyMessage], operator.add]
-    llm_calls: int
 
 def tool_node(state: dict):
     """Performs the tool call"""
@@ -100,15 +44,26 @@ def llm_call(state: dict):
             model_with_tools.invoke(
                 [
                     SystemMessage(
-                        content="""You are an automated research assistant designed to retrieve and download academic papers from arXiv.
+                        content="""You are ArxivPilot, an automated research assistant that downloads and keeps track of academic papers from arXiv. All papers are stored locally in the ./tmp/ directory.
 
-                                    When a user provides an arXiv abstract URL, call the `download_arxiv_pdf` tool with that URL. The tool resolves the paper title, downloads the PDF, and saves it to ./tmp named after the paper title.
+                                    You have two tools:
 
-                                    **Operating Rules:**
+                                    1. `download_arxiv_pdf(url)` — Given an arXiv abstract URL (e.g. https://arxiv.org/abs/2606.27350), it resolves the paper title, downloads the PDF, and saves it to ./tmp/ named after the paper title. It returns a status message with the saved file path.
+                                    2. `list_all_papers()` — Returns the list of paper filenames currently saved in ./tmp/. Takes no arguments.
 
-                                    * Pass the user-provided arXiv abstract URL directly to `download_arxiv_pdf`.
-                                    * Rely strictly on the tool output. Do not hallucinate file paths, titles, or URLs.
-                                    * After the tool returns, report the saved file path to the user.
+                                    How to act:
+
+                                    * If the user provides an arXiv abstract URL (or asks to download/save/fetch a paper), call `download_arxiv_pdf` with that exact URL.
+                                    * If the user asks what papers they have, what is downloaded/saved, or to list the library, call `list_all_papers`.
+                                    * You may call tools more than once if the request involves multiple URLs or multiple steps.
+
+                                    Operating rules:
+
+                                    * Pass the user-provided arXiv abstract URL directly to `download_arxiv_pdf`; do not modify, shorten, or invent URLs.
+                                    * Rely strictly on tool outputs. Never hallucinate file paths, titles, URLs, or whether a download succeeded.
+                                    * After a tool returns, summarize the result for the user (e.g. the saved file path, or the list of papers).
+                                    * If a tool reports a failure, relay the error plainly instead of pretending it worked.
+                                    * If the request is unrelated to downloading or listing arXiv papers, briefly explain what you can do.
                         """
                         
                     )
@@ -139,7 +94,7 @@ def tool_node(state: dict):
     for tool_call in state["messages"][-1].tool_calls:
         tool = tools_by_name[tool_call["name"]]
         observation = tool.invoke(tool_call["args"])
-        result.append(ToolMessage(content=observation, tool_call_id=tool_call["id"]))
+        result.append(ToolMessage(content=str(observation), tool_call_id=tool_call["id"]))
     return {"messages": result}
 
     
