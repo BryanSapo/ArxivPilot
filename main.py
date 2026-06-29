@@ -1,7 +1,6 @@
 from langgraph.graph import StateGraph, MessagesState, START, END
-
 from langchain_openai import ChatOpenAI
-from langchain.messages import SystemMessage, ToolMessage
+from langchain.messages import SystemMessage, ToolMessage, HumanMessage
 from typing import Literal
 import os
 from dotenv import load_dotenv
@@ -130,7 +129,7 @@ if __name__ == "__main__":
         f.write(png)
 
     # Invoke
-    from langchain.messages import HumanMessage
+    
     messages = [HumanMessage(content=input("Please ask a question:\n"))]
     messages = agent.invoke({"messages": messages})
     # p_check(messages, "messages")
