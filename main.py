@@ -129,9 +129,12 @@ if __name__ == "__main__":
         f.write(png)
 
     # Invoke
-    
-    messages = [HumanMessage(content=input("Please ask a question:\n"))]
-    messages = agent.invoke({"messages": messages})
-    # p_check(messages, "messages")
-    for m in messages["messages"]:
-        m.pretty_print()
+    try:
+        while True:
+            messages = [HumanMessage(content=input("Please ask a question:\n"))]
+            messages = agent.invoke({"messages": messages})
+            # p_check(messages, "messages")
+            for m in messages["messages"]:
+                m.pretty_print()
+    except KeyboardInterrupt:
+        print("\nSESSION END!\n")
