@@ -47,11 +47,11 @@ def download_arxiv_pdf(url: str) -> str:
                 if chunk:
                     pdf_file.write(chunk)
         msg = f"Success! PDF downloaded and saved to: {full_path}"
-        print(msg)
+        # print(msg)
         return msg
     else:
         msg = f"Failed to fetch PDF. Status code: {response.status_code}"
-        print(msg)
+        # print(msg)
         return msg
     
 @tool
